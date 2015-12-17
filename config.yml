@@ -1,0 +1,6 @@
+evernote_token: ''
+params:
+    deck: ''
+    note_type: ''
+    note_search_filter: ''
+    parsing_regex: ''
