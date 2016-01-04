@@ -40,7 +40,7 @@ def aggregate():
     parsing_regex = re.compile(config['params']['parsing_regex'], re.UNICODE)
     notes_metadata = note_store.findNotesMetadata(note_filter, 0, EDAM_USER_NOTES_MAX, note_result_spec).notes
     lines = '<br />'.join(
-        line.encode('UTF-8')
+        line.encode('utf-8')
         for note_metadata in notes_metadata
         for line in ElementTree.fromstring(note_store.getNoteContent(note_metadata.guid)).find('div').itertext()
         if parsing_regex.match(line) is not None
@@ -64,7 +64,7 @@ def aggregate():
 
 
 def synchronize():
-    # Init anki objects
+    # Init Anki objects
     deck_id = mw.col.decks.id(config['params']['deck'])
     model = mw.col.models.byName(config['params']['note_type'])
     mw.col.models.setCurrent(model)
@@ -120,9 +120,69 @@ def synchronize():
          - %s""" % ', '.join(ignored_note.values()) for ignored_note in ignored_notes))
     mw.reset()
 
+def invert_synchronize():
+    # Get Anki objects
+    deck_id = mw.col.decks.id(config['params']['deck'])
+    model = mw.col.models.byName(config['params']['note_type'])
+
+    # Store existing notes
+    existing_notes = [
+        dict(mw.col.getNote(note_id).items())
+        for note_id in mw.col.findNotes('mid:%s tag:did:%s' % (model['id'], deck_id))
+    ]
+
+    # Fetch Evernote notes lines
+    one_note_filter = NoteFilter(words=config['params']['one_note'])
+    one_note_result_spec = NotesMetadataResultSpec()
+    one_note_search = note_store.findNotesMetadata(one_note_filter, 0, EDAM_USER_NOTES_MAX, one_note_result_spec)
+    one_note_guid = one_note_search.notes[0].guid
+    one_note = note_store.getNote(one_note_guid, True, False, False, False)
+    lines = (
+        line
+        for line in ElementTree.fromstring(one_note.content).itertext()
+    )
+
+    # Parse those lines
+    parsing_regex = re.compile(config['params']['parsing_regex'], re.UNICODE)
+    matches = (
+        parsing_regex.match(line)
+        for line in lines
+    )
+    mappings = (
+        match.groupdict()
+        for match in matches
+        if match is not None
+    )
+
+    # Partition the mappings
+    mappings_to_keep, mappings_to_remove = [], []
+    for mapping in mappings:
+        if mapping in existing_notes:
+            mappings_to_keep.append(mapping)
+        else:
+            mappings_to_remove.append(mapping)
+
+    # Update the content
+    invert_template = config['params']['invert_template']
+    new_content = '<br />'.join((invert_template % mapping).encode('utf-8') for mapping in mappings_to_keep)
+    content_replacing_regex = r'(<en-note[^>]*>).*(</en-note>)'
+    one_note.content = re.sub(content_replacing_regex, r'\1%s\2' % new_content,one_note.content, flags=re.DOTALL)
+
+    # Update the One note
+    note_store.updateNote(one_note)
+
+    showInfo("""
+        Synchronized.
+        Removed:""" + ''.join("""
+         - %s""" % ', '.join(mapping.values()) for mapping in mappings_to_remove))
+    mw.reset()
+
 aggregate_action = QAction('Everki: Aggregate', mw)
 mw.connect(aggregate_action, SIGNAL('triggered()'), aggregate)
 mw.form.menuTools.addAction(aggregate_action)
 synchronize_action = QAction('Everki: Synchronize', mw)
 mw.connect(synchronize_action, SIGNAL('triggered()'), synchronize)
 mw.form.menuTools.addAction(synchronize_action)
+invert_synchronize_action = QAction('Everki: Invert Synchronize', mw)
+mw.connect(invert_synchronize_action, SIGNAL('triggered()'), invert_synchronize)
+mw.form.menuTools.addAction(invert_synchronize_action)

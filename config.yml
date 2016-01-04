@@ -5,3 +5,4 @@ params:
     deck: 'Evernote'
     note_type: 'Evernote'
     parsing_regex: '^(?P<kanji>[^　]+)　(?P<kana>[^　]+)　(?P<translation>.+)$'
+    invert_template: '%(kanji)s　%(kana)s　%(translation)s'
